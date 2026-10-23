@@ -44,16 +44,20 @@ flowchart TD
     D --> E[save previous images from Terraform outputs]
     E --> F[terraform apply]
     F --> G[run migrate and seed jobs]
-    G --> H[smoke test the public MCP URL]
+    G --> H[smoke checkout, tool install, smoke test]
     H --> I[post-deploy eval job]
-    I -->|both pass| J[job summary with digests and MCP URL]
-    H -->|fail| K[rollback]
+    I -->|pass| N[job summary, always runs]
+    F -->|fail| K[rollback]
+    G -->|fail| K
+    H -->|fail| K
     I -->|fail| K
     K -->|previous images exist| L[terraform apply with previous images, then fail]
     K -->|first deploy| M[fail with message: run demo-down]
+    L --> N
+    M --> N
 ```
 
-Database migrations are not reversed by a rollback.
+Rollback runs on any failure after apply starts, not only smoke or eval. Database migrations are not reversed, so old images may be re-applied over a partially run additive migration.
 
 `demo-down` runs `terraform destroy` and then checks that the resource group no longer exists. It requires the input `confirm` to equal `destroy-azure-demo`.
 
@@ -71,13 +75,14 @@ Database migrations are not reversed by a rollback.
 
 `scripts/check.sh` runs `terraform fmt -check`, `terraform init -backend=false` and `validate` for both roots, `tflint`, `terraform test` (mocked providers, no Azure access), `actionlint`, `shellcheck`, and the `tests/*.test.sh` scripts. It stops at the first failure.
 
-Tools it needs on `PATH`: `terraform` 1.9 or later, `tflint`, `actionlint`, `shellcheck`, `bash`, and `jq`. `tflint --init` downloads the azurerm ruleset, so the first run needs network access. None of it needs an Azure account. CI runs the same script on every pull request and push to `main`.
+Tools it needs on `PATH`: `terraform` 1.11 or later (the tests use `override_during`), `tflint`, `actionlint`, `shellcheck`, `bash`, and `jq`. `tflint --init` downloads the azurerm ruleset, so the first run needs network access. None of it needs an Azure account. CI runs the same script on every pull request and push to `main`.
 
 ## Deploy it yourself
 
-1. **Prerequisites.** An Azure subscription where you hold Owner, the tools `terraform`, `az`, and `gh`, and a fork or copy of this repository. The apps pull images from GHCR without registry credentials, so all three packages must be public. The `vehicle-mcp-server` package is public (an anonymous manifest pull returned 200 on 2026-10-23). The agent and pipeline packages do not exist yet. The owner makes them public when they are first published.
-2. **Cost.** The stack bills while it is up. The budget (default 25, set by `budget_amount`) only sends alerts. It does not cap spend. Run `demo-down` when you finish.
-3. **Bootstrap, once.** Run `az login`, then `terraform -chdir=terraform/bootstrap init` and `terraform -chdir=terraform/bootstrap apply` with `budget_contact_email` and `budget_start_date` (the first day of a month, for example `2026-11-01T00:00:00Z`). Keep the local state file safe.
-4. **GitHub environment.** Create the environment `azure` with yourself as required reviewer. Add one environment variable per bootstrap output, named as the output in upper case: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `TFSTATE_RESOURCE_GROUP`, and `TFSTATE_STORAGE_ACCOUNT`. If you fork, change `github_repository` so the OIDC subject matches your fork.
-5. **Deploy.** Run `demo-up` with `mcp_version` and `agent_version`, then approve the `deploy` job. The job summary shows the MCP URL.
-6. **Tear down.** Run `demo-down` with `confirm = destroy-azure-demo`. Bootstrap and the budget stay. Remove them with `terraform -chdir=terraform/bootstrap destroy`.
+1. **Prerequisites.** An Azure subscription where you hold Owner, the tools `terraform`, `az`, and `gh`, and a fork or copy of this repository. `demo-up` cannot pass until `vehicle-mcp-server` 0.4.1 (the `smoke-public.sh --security` fix) and the Phase 3 `vehicle-risk-agent` release exist; the `mcp_version` default is `0.4.1`. The apps pull images from GHCR without registry credentials, so all three packages must be public. The `vehicle-mcp-server` package is public (an anonymous manifest pull returned 200 on 2026-10-23). Dispatch `pipeline-image` once and set its package public before the first `demo-up`. The agent package must likewise be published and public.
+2. **Fork limits.** A fork can deploy the published `ghcr.io/sovorn-c` app images, but it cannot publish its own pipeline image without code changes, because the workflows and validations are tied to the `sovorn-c` namespace and owner. To publish your own pipeline image, edit: the `IMAGE_NAME` namespace in `.github/workflows/pipeline-image.yml` (line 38); the `pipeline_image` validation in `terraform/stack/variables.tf` (line 23; lines 33 and 43 cover the MCP and agent images, which stay `sovorn-c`); and in `.github/workflows/demo-up.yml` the pipeline image check (line 113) and the `gh attestation verify --owner sovorn-c` loop (line 149), which uses one owner for all three images, so it needs a per-image owner. Without these edits, the pipeline image cannot be published from a fork.
+3. **Cost.** The stack bills while it is up. The budget (default 25, set by `budget_amount`) only sends alerts. It does not cap spend. Run `demo-down` when you finish.
+4. **Bootstrap, once.** Run `az login`, then `terraform -chdir=terraform/bootstrap init` and `terraform -chdir=terraform/bootstrap apply` with `budget_contact_email`, `budget_start_date` (the first day of the **current** month, for example `2026-10-01T00:00:00Z` when deploying in October 2026; a later month leaves the current month without alerts), and, if you fork, `-var="github_repository=<owner>/<repo>"` so the OIDC subject matches your fork from the first apply. Keep the local state file safe.
+5. **GitHub environment.** Create the environment `azure` with yourself as required reviewer. Add one environment variable per bootstrap output, named as the output in upper case: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `TFSTATE_RESOURCE_GROUP`, and `TFSTATE_STORAGE_ACCOUNT`.
+6. **Deploy.** Run `demo-up` with `agent_version` (and `mcp_version` if you need a version other than the default), then approve the `deploy` job. The job summary shows the MCP URL.
+7. **Tear down.** Run `demo-down` with `confirm = destroy-azure-demo`. Bootstrap and the budget stay. Remove them with `terraform -chdir=terraform/bootstrap destroy`.

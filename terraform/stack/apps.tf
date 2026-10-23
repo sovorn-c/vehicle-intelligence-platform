@@ -22,7 +22,7 @@ locals {
   # Shared by ca-agent and both agent jobs so they cannot drift.
   agent_env = [
     { name = "ENVIRONMENT", value = "production", secret_name = null },
-    # [UNVERIFIED] until Phase 4: in-environment name resolution via http://<app-name>.
+    # [UNVERIFIED] until Phase 4: name resolution via http://<app-name>, and plain-HTTP calls against the Container Apps HTTP-to-HTTPS redirect (allow_insecure_connections unset).
     { name = "MCP_SERVER_URL", value = "http://${local.app_names.mcp}/mcp", secret_name = null },
     { name = "DRAFTING_MODE", value = "azure_openai", secret_name = null },
     { name = "ENABLE_LIVE_DRAFTING", value = "true", secret_name = null },
@@ -148,7 +148,7 @@ resource "azurerm_container_app" "mcp" {
         value = "true"
       }
       env {
-        # [UNVERIFIED] until Phase 4: in-environment name resolution via http://<app-name>.
+        # [UNVERIFIED] until Phase 4: name resolution via http://<app-name>, and plain-HTTP calls against the Container Apps HTTP-to-HTTPS redirect (allow_insecure_connections unset).
         name  = "VEHICLE_MCP_PIPELINE_BASE_URL"
         value = "http://${local.app_names.pipeline}"
       }

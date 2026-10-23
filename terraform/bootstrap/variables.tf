@@ -39,7 +39,7 @@ variable "budget_contact_email" {
 
 variable "budget_start_date" {
   type        = string
-  description = "Budget start, RFC 3339, first day of a month (for example 2026-11-01T00:00:00Z)."
+  description = "Budget start, RFC 3339, the first day of the current month (for example 2026-10-01T00:00:00Z when deploying in October 2026). A later month leaves the current month without alerts."
 
   validation {
     condition     = can(regex("^\\d{4}-\\d{2}-01T00:00:00Z$", var.budget_start_date))
