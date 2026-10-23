@@ -9,3 +9,7 @@ crash.log
 .terraform.tfstate.lock.info
 
 .DS_Store
+
+# Local environment
+.env
+.env.*
