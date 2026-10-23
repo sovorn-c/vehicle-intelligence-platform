@@ -118,6 +118,26 @@ run "rbac_admin_is_constrained" {
     condition     = strcontains(azurerm_role_assignment.deployer_rbac_admin.condition, "roleAssignments/write") && strcontains(azurerm_role_assignment.deployer_rbac_admin.condition, "roleAssignments/delete")
     error_message = "condition must cover both write and delete"
   }
+
+  assert {
+    condition     = strcontains(azurerm_role_assignment.deployer_rbac_admin.condition, ") AND (")
+    error_message = "write and delete clauses must be joined with AND"
+  }
+
+  assert {
+    condition     = strcontains(azurerm_role_assignment.deployer_rbac_admin.condition, "@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId]")
+    error_message = "write clause must constrain @Request RoleDefinitionId"
+  }
+
+  assert {
+    condition     = strcontains(azurerm_role_assignment.deployer_rbac_admin.condition, "@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId]")
+    error_message = "delete clause must constrain @Resource RoleDefinitionId"
+  }
+
+  assert {
+    condition     = length(regexall("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", azurerm_role_assignment.deployer_rbac_admin.condition)) == 6
+    error_message = "condition must contain exactly six GUIDs (three roles in each clause)"
+  }
 }
 
 run "budget_over_credit_is_rejected" {
