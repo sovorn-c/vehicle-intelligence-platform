@@ -244,6 +244,9 @@ jobs:
         working-directory: mcp-smoke
         env:
           PUBLIC_MCP_URL: ${{ steps.apply.outputs.mcp_url }}
+          # Azure serves MCP on its own FQDN with no fronting edge, so there is no
+          # origin to bypass; "none" opts out of the direct-origin probe (0.4.1+).
+          PUBLIC_MCP_DIRECT_ORIGIN_HOST: none
         run: |
           set -euo pipefail
           uv sync --frozen
