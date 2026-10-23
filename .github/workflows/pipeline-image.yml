@@ -1,0 +1,94 @@
+name: pipeline-image
+
+on:
+  workflow_call:
+    inputs:
+      pipeline_sha:
+        description: Commit of sovorn-c/nz-vehicle-data-pipeline to build
+        type: string
+        required: false
+        default: ea49e71075118d6cdc3ed2426cb3620f69792cf6
+    outputs:
+      image:
+        description: Digest-pinned pipeline image reference
+        value: ${{ jobs.build.outputs.image }}
+  workflow_dispatch:
+    inputs:
+      pipeline_sha:
+        description: Commit of sovorn-c/nz-vehicle-data-pipeline to build
+        type: string
+        required: false
+        default: ea49e71075118d6cdc3ed2426cb3620f69792cf6
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
+    env:
+      IMAGE_NAME: ghcr.io/sovorn-c/vehicle-intelligence-platform/pipeline
+    steps:
+      - name: Validate pipeline_sha
+        env:
+          PIPELINE_SHA: ${{ inputs.pipeline_sha }}
+        run: |
+          if [[ ! "${PIPELINE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "pipeline_sha must be a full 40-character lowercase commit SHA" >&2
+            exit 1
+          fi
+
+      - name: Checkout pipeline source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sovorn-c/nz-vehicle-data-pipeline
+          ref: ${{ inputs.pipeline_sha }}
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ env.IMAGE_NAME }}:${{ inputs.pipeline_sha }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record image reference
+        id: ref
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "unexpected digest: ${DIGEST}" >&2
+            exit 1
+          fi
+          image="${IMAGE_NAME}@${DIGEST}"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "Pipeline image: \`${image}\`" >> "${GITHUB_STEP_SUMMARY}"
