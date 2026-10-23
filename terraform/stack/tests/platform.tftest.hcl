@@ -65,6 +65,12 @@ mock_provider "azurerm" {
     }
   }
 
+  mock_resource "azurerm_key_vault_secret" {
+    defaults = {
+      versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/example"
+    }
+  }
+
   mock_resource "azurerm_cognitive_account" {
     defaults = {
       id       = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.CognitiveServices/accounts/oai-vip-abcde"
