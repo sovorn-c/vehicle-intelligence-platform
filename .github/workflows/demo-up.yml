@@ -184,8 +184,9 @@ jobs:
         run: |
           set -euo pipefail
           prev="${GITHUB_WORKSPACE}/terraform/stack/previous.tfvars.json"
+          state_json="$(terraform output -json)"
           rc=0
-          terraform output -json | "${GITHUB_WORKSPACE}/scripts/previous-images.sh" > "${prev}" || rc=$?
+          "${GITHUB_WORKSPACE}/scripts/previous-images.sh" <<< "${state_json}" > "${prev}" || rc=$?
           if [[ ${rc} -ne 0 && ${rc} -ne 3 ]]; then
             exit "${rc}"
           fi
@@ -208,14 +209,19 @@ jobs:
             -var="mcp_image=${MCP_IMAGE}" \
             -var="agent_image=${AGENT_IMAGE}"
           rg="$(terraform output -raw resource_group_name)"
+          mcp_url="$(terraform output -raw mcp_url)"
           jobs="$(terraform output -json job_names)"
+          eval_job="$(jq -er .agent_postdeploy_eval <<< "${jobs}")"
+          migrate_job="$(jq -er .pipeline_migrate <<< "${jobs}")"
+          pipeline_seed_job="$(jq -er .pipeline_seed <<< "${jobs}")"
+          agent_seed_job="$(jq -er .agent_seed <<< "${jobs}")"
           {
             echo "resource_group=${rg}"
-            echo "mcp_url=$(terraform output -raw mcp_url)"
-            echo "eval_job=$(jq -r .agent_postdeploy_eval <<< "${jobs}")"
+            echo "mcp_url=${mcp_url}"
+            echo "eval_job=${eval_job}"
           } >> "${GITHUB_OUTPUT}"
-          for key in pipeline_migrate pipeline_seed agent_seed; do
-            "${GITHUB_WORKSPACE}/scripts/run-aca-job.sh" "${rg}" "$(jq -r --arg k "${key}" '.[$k]' <<< "${jobs}")"
+          for job in "${migrate_job}" "${pipeline_seed_job}" "${agent_seed_job}"; do
+            "${GITHUB_WORKSPACE}/scripts/run-aca-job.sh" "${rg}" "${job}"
           done
 
       - name: Checkout vehicle-mcp-server for smoke

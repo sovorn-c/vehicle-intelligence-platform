@@ -16,7 +16,22 @@ permissions:
   contents: read
 
 jobs:
+  confirm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Confirm destroy
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [[ "${CONFIRM}" != "destroy-azure-demo" ]]; then
+            echo "::error::confirm must equal destroy-azure-demo"
+            exit 1
+          fi
+
   destroy:
+    needs: confirm
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: azure
@@ -31,15 +46,6 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "0"
     steps:
-      - name: Confirm destroy
-        env:
-          CONFIRM: ${{ inputs.confirm }}
-        run: |
-          if [[ "${CONFIRM}" != "destroy-azure-demo" ]]; then
-            echo "::error::confirm must equal destroy-azure-demo"
-            exit 1
-          fi
-
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -76,7 +82,9 @@ jobs:
         run: |
           set -euo pipefail
           zero="ghcr.io/sovorn-c/destroy@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-          rg="$(terraform output -raw resource_group_name)"
+          # State may be empty or partially applied; fall back to the deterministic
+          # name. It must match rg-${var.name_prefix}-demo with the default prefix.
+          rg="$(terraform output -raw resource_group_name 2>/dev/null || echo rg-vip-demo)"
           echo "resource_group=${rg}" >> "${GITHUB_OUTPUT}"
           terraform destroy -auto-approve \
             -var="pipeline_image=${zero}" \

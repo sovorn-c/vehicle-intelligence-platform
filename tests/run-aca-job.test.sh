@@ -13,6 +13,7 @@ mkdir -p "${tmp}/bin"
 cat > "${tmp}/bin/az" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ -z "${FAKE_AZ_FAIL:-}" ]] || { echo "az: simulated failure" >&2; exit 7; }
 case "$*" in
   *"job start"*) echo "exec-1" ;;
   *"job execution show"*)
@@ -41,15 +42,24 @@ run() { # statuses; sets rc, err
 
 run "Running Running Succeeded"
 [[ ${rc} -eq 0 ]] || fail "success case exited ${rc}"
+[[ "$(cat "${tmp}/state")" -eq 3 ]] || fail "expected 3 polls, got $(cat "${tmp}/state")"
 
 run "Running Failed"
 [[ ${rc} -eq 1 ]] || fail "failed case exited ${rc}"
 grep -q "Failed" "${tmp}/err" || fail "stderr missing Failed"
 
+run "Stopped"
+[[ ${rc} -eq 1 ]] || fail "stopped case exited ${rc}"
+grep -q "Stopped" "${tmp}/err" || fail "stderr missing Stopped"
+
+FAKE_AZ_FAIL=1 run "Succeeded"
+[[ ${rc} -ne 0 ]] || fail "failing az should make the script fail"
+
 start=${SECONDS}
 run "Running" 2
 elapsed=$((SECONDS - start))
 [[ ${rc} -eq 124 ]] || fail "timeout case exited ${rc}"
+((elapsed >= 2)) || fail "timeout returned after only ${elapsed}s"
 ((elapsed <= 5)) || fail "timeout took ${elapsed}s"
 
 echo "run-aca-job.test: OK"
