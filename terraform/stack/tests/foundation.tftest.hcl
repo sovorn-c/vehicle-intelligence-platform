@@ -44,10 +44,38 @@ mock_provider "azurerm" {
     }
   }
 
+  mock_resource "azurerm_log_analytics_workspace" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.OperationalInsights/workspaces/log-vip-abcde"
+    }
+  }
+
   mock_resource "azurerm_key_vault" {
     defaults = {
       id        = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.KeyVault/vaults/kv-vip-abcde"
       vault_uri = "https://kv-vip-abcde.vault.azure.net/"
+    }
+  }
+
+  mock_resource "azurerm_user_assigned_identity" {
+    defaults = {
+      id           = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-vip"
+      client_id    = "99999999-9999-9999-9999-999999999999"
+      principal_id = "88888888-8888-8888-8888-888888888888"
+    }
+  }
+
+  mock_resource "azurerm_cognitive_account" {
+    defaults = {
+      id       = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.CognitiveServices/accounts/oai-vip-abcde"
+      endpoint = "https://oai-vip-abcde.openai.azure.com/"
+    }
+  }
+
+  mock_resource "azurerm_container_app_environment" {
+    defaults = {
+      id             = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.App/managedEnvironments/cae-vip-demo"
+      default_domain = "example.australiaeast.azurecontainerapps.io"
     }
   }
 }
