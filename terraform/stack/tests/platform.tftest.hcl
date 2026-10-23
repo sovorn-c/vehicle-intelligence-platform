@@ -83,6 +83,20 @@ mock_provider "azurerm" {
 mock_provider "random" {}
 
 override_resource {
+  target = azurerm_subnet.aca
+  values = {
+    id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.Network/virtualNetworks/vnet-vip-demo/subnets/snet-aca"
+  }
+}
+
+override_resource {
+  target = azurerm_subnet.pg
+  values = {
+    id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-vip-demo/providers/Microsoft.Network/virtualNetworks/vnet-vip-demo/subnets/snet-pg"
+  }
+}
+
+override_resource {
   override_during = plan
   target          = azurerm_user_assigned_identity.pipeline
   values = {
@@ -118,6 +132,10 @@ override_resource {
 run "openai_rejects_keys" {
   command = apply
 
+  variables {
+    openai_capacity = 3
+  }
+
   assert {
     condition     = azurerm_cognitive_account.openai.local_auth_enabled == false
     error_message = "OpenAI must not allow key auth."
@@ -127,7 +145,7 @@ run "openai_rejects_keys" {
     error_message = "OpenAI name must contain the suffix and equal its subdomain."
   }
   assert {
-    condition     = azurerm_cognitive_deployment.chat.name == "chat" && azurerm_cognitive_deployment.chat.sku[0].capacity == var.openai_capacity
+    condition     = azurerm_cognitive_deployment.chat.name == "chat" && azurerm_cognitive_deployment.chat.sku[0].capacity == 3 && var.openai_capacity == 3
     error_message = "Chat deployment capacity must equal var.openai_capacity."
   }
 }
@@ -138,6 +156,10 @@ run "only_agent_can_call_openai" {
   assert {
     condition     = azurerm_role_assignment.agent_openai.role_definition_name == "Cognitive Services OpenAI User"
     error_message = "Wrong OpenAI role."
+  }
+  assert {
+    condition     = azurerm_role_assignment.agent_openai.scope == azurerm_cognitive_account.openai.id && azurerm_cognitive_account.openai.id != azurerm_key_vault.main.id
+    error_message = "OpenAI role must be scoped to the OpenAI account."
   }
   assert {
     condition     = azurerm_role_assignment.agent_openai.principal_id == azurerm_user_assigned_identity.agent.principal_id && azurerm_user_assigned_identity.agent.principal_id == "aaaaaaaa-0000-0000-0000-000000000003"
@@ -160,6 +182,10 @@ run "mcp_reads_no_secrets" {
     error_message = "MCP identity must hold no role assignments."
   }
   assert {
+    condition     = azurerm_role_assignment.pipeline_secrets.scope == azurerm_key_vault.main.id && azurerm_role_assignment.agent_secrets.scope == azurerm_key_vault.main.id
+    error_message = "Secrets roles must be scoped to the vault."
+  }
+  assert {
     condition     = azurerm_role_assignment.pipeline_secrets.role_definition_name == "Key Vault Secrets User" && azurerm_role_assignment.agent_secrets.role_definition_name == "Key Vault Secrets User"
     error_message = "Pipeline and agent must hold Key Vault Secrets User."
   }
@@ -179,7 +205,7 @@ run "environment_is_vnet_consumption_only" {
   command = apply
 
   assert {
-    condition     = azurerm_container_app_environment.this.infrastructure_subnet_id == azurerm_subnet.aca.id
+    condition     = endswith(azurerm_container_app_environment.this.infrastructure_subnet_id, "/subnets/snet-aca")
     error_message = "Environment must use snet-aca."
   }
   assert {
