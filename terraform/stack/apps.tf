@@ -49,6 +49,8 @@ resource "azurerm_container_app" "pipeline" {
   revision_mode                = "Single"
   workload_profile_name        = "Consumption"
 
+  depends_on = [azurerm_role_assignment.pipeline_secrets]
+
   identity {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.pipeline.id]
@@ -168,6 +170,8 @@ resource "azurerm_container_app" "agent" {
   container_app_environment_id = azurerm_container_app_environment.this.id
   revision_mode                = "Single"
   workload_profile_name        = "Consumption"
+
+  depends_on = [azurerm_role_assignment.agent_secrets, azurerm_role_assignment.agent_openai]
 
   identity {
     type         = "UserAssigned"

@@ -134,6 +134,62 @@ override_resource {
     principal_id = "aaaaaaaa-0000-0000-0000-000000000003"
   }
 }
+override_resource {
+  target = azurerm_key_vault_secret.pg_admin_password
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/pg-admin-password"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.pipeline_database_url
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/pipeline-database-url"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_database_url
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-database-url"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_requester_token
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-requester-token"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_reviewer_token
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-reviewer-token"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_operator_token
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-operator-token"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_maintainer_token
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-maintainer-token"
+  }
+}
+
+override_resource {
+  target = azurerm_key_vault_secret.agent_snapshot_integrity_secret
+  values = {
+    versionless_id = "https://kv-vip-abcde.vault.azure.net/secrets/agent-snapshot-integrity-secret"
+  }
+}
+
 run "every_app_scales_to_zero_and_caps_at_one" {
   command = apply
 
@@ -217,20 +273,185 @@ run "agent_runs_in_production_with_vault_secrets" {
   }
 }
 
+run "secret_wiring_is_pinned" {
+  command = apply
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL = "pipeline-database-url"
+      } :
+      one([for e in azurerm_container_app.pipeline.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app.pipeline.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "pipeline: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app.pipeline.secret) == 1 && alltrue([for s in azurerm_container_app.pipeline.secret : s.identity == azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline: every secret must be fetched with the pipeline identity."
+  }
+  assert {
+    condition     = azurerm_container_app.pipeline.identity[0].identity_ids == toset([azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline: must run as the pipeline identity only."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL              = "agent-database-url"
+        REQUESTER_TOKEN           = "agent-requester-token"
+        REVIEWER_TOKEN            = "agent-reviewer-token"
+        OPERATOR_TOKEN            = "agent-operator-token"
+        MAINTAINER_TOKEN          = "agent-maintainer-token"
+        SNAPSHOT_INTEGRITY_SECRET = "agent-snapshot-integrity-secret"
+      } :
+      one([for e in azurerm_container_app.agent.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app.agent.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "agent: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app.agent.secret) == 6 && alltrue([for s in azurerm_container_app.agent.secret : s.identity == azurerm_user_assigned_identity.agent.id])
+    error_message = "agent: every secret must be fetched with the agent identity."
+  }
+  assert {
+    condition     = azurerm_container_app.agent.identity[0].identity_ids == toset([azurerm_user_assigned_identity.agent.id])
+    error_message = "agent: must run as the agent identity only."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL = "pipeline-database-url"
+      } :
+      one([for e in azurerm_container_app_job.pipeline_migrate.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app_job.pipeline_migrate.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "pipeline_migrate: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.pipeline_migrate.secret) == 1 && alltrue([for s in azurerm_container_app_job.pipeline_migrate.secret : s.identity == azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline_migrate: every secret must be fetched with the pipeline identity."
+  }
+  assert {
+    condition     = azurerm_container_app_job.pipeline_migrate.identity[0].identity_ids == toset([azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline_migrate: must run as the pipeline identity only."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL = "pipeline-database-url"
+      } :
+      one([for e in azurerm_container_app_job.pipeline_seed.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app_job.pipeline_seed.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "pipeline_seed: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.pipeline_seed.secret) == 1 && alltrue([for s in azurerm_container_app_job.pipeline_seed.secret : s.identity == azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline_seed: every secret must be fetched with the pipeline identity."
+  }
+  assert {
+    condition     = azurerm_container_app_job.pipeline_seed.identity[0].identity_ids == toset([azurerm_user_assigned_identity.pipeline.id])
+    error_message = "pipeline_seed: must run as the pipeline identity only."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL              = "agent-database-url"
+        REQUESTER_TOKEN           = "agent-requester-token"
+        REVIEWER_TOKEN            = "agent-reviewer-token"
+        OPERATOR_TOKEN            = "agent-operator-token"
+        MAINTAINER_TOKEN          = "agent-maintainer-token"
+        SNAPSHOT_INTEGRITY_SECRET = "agent-snapshot-integrity-secret"
+      } :
+      one([for e in azurerm_container_app_job.agent_seed.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app_job.agent_seed.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "agent_seed: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.agent_seed.secret) == 6 && alltrue([for s in azurerm_container_app_job.agent_seed.secret : s.identity == azurerm_user_assigned_identity.agent.id])
+    error_message = "agent_seed: every secret must be fetched with the agent identity."
+  }
+  assert {
+    condition     = azurerm_container_app_job.agent_seed.identity[0].identity_ids == toset([azurerm_user_assigned_identity.agent.id])
+    error_message = "agent_seed: must run as the agent identity only."
+  }
+
+  assert {
+    condition = alltrue([
+      for k, v in {
+        DATABASE_URL              = "agent-database-url"
+        REQUESTER_TOKEN           = "agent-requester-token"
+        REVIEWER_TOKEN            = "agent-reviewer-token"
+        OPERATOR_TOKEN            = "agent-operator-token"
+        MAINTAINER_TOKEN          = "agent-maintainer-token"
+        SNAPSHOT_INTEGRITY_SECRET = "agent-snapshot-integrity-secret"
+      } :
+      one([for e in azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0].env : e.secret_name if e.name == k]) == v &&
+      one([for s in azurerm_container_app_job.agent_postdeploy_eval.secret : s.key_vault_secret_id if s.name == v]) == "https://kv-vip-abcde.vault.azure.net/secrets/${v}"
+    ])
+    error_message = "agent_postdeploy_eval: env must resolve to the intended Key Vault secrets."
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.agent_postdeploy_eval.secret) == 6 && alltrue([for s in azurerm_container_app_job.agent_postdeploy_eval.secret : s.identity == azurerm_user_assigned_identity.agent.id])
+    error_message = "agent_postdeploy_eval: every secret must be fetched with the agent identity."
+  }
+  assert {
+    condition     = azurerm_container_app_job.agent_postdeploy_eval.identity[0].identity_ids == toset([azurerm_user_assigned_identity.agent.id])
+    error_message = "agent_postdeploy_eval: must run as the agent identity only."
+  }
+}
+
 run "agent_jobs_share_agent_env" {
   command = apply
 
   assert {
-    condition     = toset([for e in azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0].env : e.name]) == toset([for e in azurerm_container_app.agent.template[0].container[0].env : e.name])
-    error_message = "Eval job env must match ca-agent."
+    condition     = toset([for e in azurerm_container_app_job.agent_seed.template[0].container[0].env : "${e.name}|${e.value == null ? "" : e.value}|${e.secret_name == null ? "" : e.secret_name}"]) == toset([for e in azurerm_container_app.agent.template[0].container[0].env : "${e.name}|${e.value == null ? "" : e.value}|${e.secret_name == null ? "" : e.secret_name}"])
+    error_message = "agent_seed env (name, value, secret) must match ca-agent."
   }
   assert {
-    condition     = toset([for e in azurerm_container_app_job.agent_seed.template[0].container[0].env : e.name]) == toset([for e in azurerm_container_app.agent.template[0].container[0].env : e.name])
-    error_message = "Seed job env must match ca-agent."
+    condition     = toset([for e in azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0].env : "${e.name}|${e.value == null ? "" : e.value}|${e.secret_name == null ? "" : e.secret_name}"]) == toset([for e in azurerm_container_app.agent.template[0].container[0].env : "${e.name}|${e.value == null ? "" : e.value}|${e.secret_name == null ? "" : e.secret_name}"])
+    error_message = "agent_postdeploy_eval env (name, value, secret) must match ca-agent."
+  }
+}
+
+run "jobs_are_single_shot_manual" {
+  command = apply
+
+  assert {
+    condition = alltrue([
+      for j in [azurerm_container_app_job.pipeline_migrate, azurerm_container_app_job.pipeline_seed, azurerm_container_app_job.agent_seed, azurerm_container_app_job.agent_postdeploy_eval] :
+      j.manual_trigger_config[0].parallelism == 1 && j.manual_trigger_config[0].replica_completion_count == 1 && j.replica_timeout_in_seconds == 1800 && j.replica_retry_limit == 0
+    ])
+    error_message = "Jobs must be manual, single replica, 1800s timeout, no retries."
   }
   assert {
-    condition     = toset(values(output.job_names)) == toset(["job-pipeline-migrate", "job-pipeline-seed", "job-agent-seed", "job-agent-postdeploy-eval"])
-    error_message = "Job names mismatch."
+    condition     = azurerm_container_app_job.pipeline_migrate.template[0].container[0].command == tolist(["alembic", "upgrade", "head"])
+    error_message = "migrate command mismatch."
+  }
+  assert {
+    condition     = azurerm_container_app_job.pipeline_seed.template[0].container[0].command == tolist(["python", "-m", "nz_vehicle_data_pipeline.cli.seed", "--manifest", "fixtures/manifest.json", "--phase2"])
+    error_message = "pipeline seed command mismatch."
+  }
+  assert {
+    condition     = azurerm_container_app_job.agent_seed.template[0].container[0].command == tolist(["python", "-m", "vehicle_risk_agent.cli.seed"])
+    error_message = "agent seed command mismatch."
+  }
+  assert {
+    condition     = azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0].command == tolist(["python", "-m", "vehicle_risk_agent.cli.postdeploy_eval"])
+    error_message = "eval command mismatch."
+  }
+  assert {
+    condition     = output.job_names.pipeline_migrate == "job-pipeline-migrate" && output.job_names.pipeline_seed == "job-pipeline-seed" && output.job_names.agent_seed == "job-agent-seed" && output.job_names.agent_postdeploy_eval == "job-agent-postdeploy-eval"
+    error_message = "job_names mismatch."
+  }
+  assert {
+    condition     = output.agent_url == "https://ca-agent.happy-sky-123.australiaeast.azurecontainerapps.io" && output.resource_group_name == "rg-vip-demo"
+    error_message = "agent_url / resource_group_name mismatch."
   }
 }
 
@@ -252,6 +473,16 @@ run "latest_image_is_rejected" {
   }
 
   expect_failures = [var.pipeline_image]
+}
+
+run "agent_image_tag_is_rejected" {
+  command = plan
+
+  variables {
+    agent_image = "ghcr.io/sovorn-c/vehicle-risk-agent:latest"
+  }
+
+  expect_failures = [var.agent_image]
 }
 
 run "deployed_images_keys_match_variables" {

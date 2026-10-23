@@ -7,6 +7,8 @@ resource "azurerm_container_app_job" "pipeline_migrate" {
   replica_timeout_in_seconds   = 1800
   replica_retry_limit          = 0
 
+  depends_on = [azurerm_role_assignment.pipeline_secrets]
+
   manual_trigger_config {
     parallelism              = 1
     replica_completion_count = 1
@@ -54,6 +56,8 @@ resource "azurerm_container_app_job" "pipeline_seed" {
   workload_profile_name        = "Consumption"
   replica_timeout_in_seconds   = 1800
   replica_retry_limit          = 0
+
+  depends_on = [azurerm_role_assignment.pipeline_secrets]
 
   manual_trigger_config {
     parallelism              = 1
@@ -103,6 +107,8 @@ resource "azurerm_container_app_job" "agent_seed" {
   replica_timeout_in_seconds   = 1800
   replica_retry_limit          = 0
 
+  depends_on = [azurerm_role_assignment.agent_secrets, azurerm_role_assignment.agent_openai]
+
   manual_trigger_config {
     parallelism              = 1
     replica_completion_count = 1
@@ -150,6 +156,8 @@ resource "azurerm_container_app_job" "agent_postdeploy_eval" {
   workload_profile_name        = "Consumption"
   replica_timeout_in_seconds   = 1800
   replica_retry_limit          = 0
+
+  depends_on = [azurerm_role_assignment.agent_secrets, azurerm_role_assignment.agent_openai]
 
   manual_trigger_config {
     parallelism              = 1

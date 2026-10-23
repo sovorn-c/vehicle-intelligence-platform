@@ -15,7 +15,7 @@ output "mcp_url" {
 
 output "agent_url" {
   description = "Public risk agent URL."
-  value       = "https://${azurerm_container_app.agent.ingress[0].fqdn}"
+  value       = "https://${local.app_names.agent}.${azurerm_container_app_environment.this.default_domain}"
 }
 
 output "job_names" {
