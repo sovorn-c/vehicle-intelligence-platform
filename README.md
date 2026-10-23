@@ -57,6 +57,8 @@ flowchart TD
     M --> N
 ```
 
+The smoke step runs `vehicle-mcp-server`'s `scripts/smoke-public.sh`, both the journey and `--security` modes, at `v<mcp_version>` against the MCP app's FQDN. It sets `PUBLIC_MCP_DIRECT_ORIGIN_HOST=none`, because on Azure the FQDN is the origin and there is no fronting edge to bypass. This opt-out needs `vehicle-mcp-server` 0.4.1 or later.
+
 Rollback runs on any failure after apply starts, not only smoke or eval. Database migrations are not reversed, so old images may be re-applied over a partially run additive migration.
 
 `demo-down` runs `terraform destroy` and then checks that the resource group no longer exists. It requires the input `confirm` to equal `destroy-azure-demo`.
