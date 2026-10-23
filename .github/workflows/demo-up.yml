@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       mcp_version:
-        description: vehicle-mcp-server release version (Phase 4 needs 0.4.1)
+        description: vehicle-mcp-server release version (0.4.1 or later; the smoke-public.sh --security fix)
         type: string
         required: false
-        default: "0.4.0"
+        default: "0.4.1"
       agent_version:
         description: vehicle-risk-agent release version
         type: string
@@ -103,7 +103,7 @@ jobs:
         run: |
           semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
           if [[ ! "${MCP_VERSION}" =~ ${semver} ]]; then
-            echo "mcp_version must be a semver like 0.4.0" >&2
+            echo "mcp_version must be a semver like 0.4.1" >&2
             exit 1
           fi
           if [[ ! "${AGENT_VERSION}" =~ ${semver} ]]; then
@@ -260,7 +260,7 @@ jobs:
         run: scripts/run-aca-job.sh "${RESOURCE_GROUP}" "${EVAL_JOB}"
 
       - name: Roll back
-        if: steps.smoke.outcome != 'success' || steps.eval.outcome != 'success'
+        if: ${{ !cancelled() && steps.apply.outcome != 'skipped' && (steps.smoke.outcome != 'success' || steps.eval.outcome != 'success') }}
         working-directory: terraform/stack
         env:
           HAS_PREVIOUS: ${{ steps.previous.outputs.has_previous }}
@@ -268,9 +268,11 @@ jobs:
           set -euo pipefail
           if [[ "${HAS_PREVIOUS}" == "true" ]]; then
             terraform apply -auto-approve -var-file=previous.tfvars.json
-            echo "::error::Deploy rejected; rolled back to previous images (database migrations are not reversed)."
-          else
+            echo "::error::Deploy rejected; rolled back to previous images. Old images may now run over a partially applied additive database migration; migrations are not reversed."
+          elif [[ "${HAS_PREVIOUS}" == "false" ]]; then
             echo "::error::First deploy failed; no previous images to roll back to. Run demo-down."
+          else
+            echo "::error::Deploy failed and the previous-image record is unavailable. Run demo-down."
           fi
           exit 1
 
