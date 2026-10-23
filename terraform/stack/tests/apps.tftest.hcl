@@ -1,7 +1,7 @@
 variables {
-  pipeline_image = "ghcr.io/sovorn-c/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  mcp_image      = "ghcr.io/sovorn-c/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  agent_image    = "ghcr.io/sovorn-c/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  pipeline_image = "ghcr.io/sovorn-c/vehicle-intelligence-platform/pipeline@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  mcp_image      = "ghcr.io/sovorn-c/vehicle-mcp-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  agent_image    = "ghcr.io/sovorn-c/vehicle-risk-agent@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 }
 
 mock_provider "azurerm" {
@@ -491,5 +491,59 @@ run "deployed_images_keys_match_variables" {
   assert {
     condition     = keys(output.deployed_images) == ["agent_image", "mcp_image", "pipeline_image"]
     error_message = "deployed_images keys must equal the image variable names."
+  }
+}
+
+run "each_workload_uses_its_own_image" {
+  command = apply
+
+  assert {
+    condition     = azurerm_container_app.pipeline.template[0].container[0].image == var.pipeline_image
+    error_message = "pipeline app must run pipeline_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app.mcp.template[0].container[0].image == var.mcp_image
+    error_message = "mcp app must run mcp_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app.agent.template[0].container[0].image == var.agent_image
+    error_message = "agent app must run agent_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app_job.pipeline_migrate.template[0].container[0].image == var.pipeline_image
+    error_message = "pipeline migrate job must run pipeline_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app_job.pipeline_seed.template[0].container[0].image == var.pipeline_image
+    error_message = "pipeline seed job must run pipeline_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app_job.agent_seed.template[0].container[0].image == var.agent_image
+    error_message = "agent seed job must run agent_image."
+  }
+
+  assert {
+    condition     = azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0].image == var.agent_image
+    error_message = "agent post-deploy eval job must run agent_image."
+  }
+
+  assert {
+    condition     = output.deployed_images.pipeline_image == var.pipeline_image
+    error_message = "deployed_images.pipeline_image must equal pipeline_image."
+  }
+
+  assert {
+    condition     = output.deployed_images.mcp_image == var.mcp_image
+    error_message = "deployed_images.mcp_image must equal mcp_image."
+  }
+
+  assert {
+    condition     = output.deployed_images.agent_image == var.agent_image
+    error_message = "deployed_images.agent_image must equal agent_image."
   }
 }
