@@ -1,0 +1,289 @@
+name: demo-up
+
+on:
+  workflow_dispatch:
+    inputs:
+      mcp_version:
+        description: vehicle-mcp-server release version (Phase 4 needs 0.4.1)
+        type: string
+        required: false
+        default: "0.4.0"
+      agent_version:
+        description: vehicle-risk-agent release version
+        type: string
+        required: true
+      force_gate_failure:
+        description: Force the pre-deploy eval gate to fail
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: azure-demo
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Validate agent_version
+        env:
+          AGENT_VERSION: ${{ inputs.agent_version }}
+        run: |
+          if [[ ! "${AGENT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "agent_version must be a semver like 0.1.0" >&2
+            exit 1
+          fi
+
+      - name: Checkout vehicle-risk-agent
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sovorn-c/vehicle-risk-agent
+          ref: v${{ inputs.agent_version }}
+          path: agent
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          version: "0.5.26"
+
+      - name: Install dependencies
+        working-directory: agent
+        run: uv sync --frozen
+
+      - name: Pre-deploy eval gate
+        working-directory: agent
+        env:
+          FORCE_FAIL: ${{ inputs.force_gate_failure }}
+        run: |
+          args=()
+          if [[ "${FORCE_FAIL}" == "true" ]]; then
+            args+=(--force-fail)
+          fi
+          scripts/predeploy-eval.sh "${args[@]}"
+
+  pipeline-image:
+    needs: gate
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/pipeline-image.yml
+
+  deploy:
+    needs: [gate, pipeline-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: azure
+    permissions:
+      id-token: write
+      contents: read
+      packages: read
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MCP_VERSION: ${{ inputs.mcp_version }}
+      AGENT_VERSION: ${{ inputs.agent_version }}
+      PIPELINE_IMAGE: ${{ needs.pipeline-image.outputs.image }}
+    steps:
+      - name: Validate inputs
+        run: |
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "${MCP_VERSION}" =~ ${semver} ]]; then
+            echo "mcp_version must be a semver like 0.4.0" >&2
+            exit 1
+          fi
+          if [[ ! "${AGENT_VERSION}" =~ ${semver} ]]; then
+            echo "agent_version must be a semver like 0.1.0" >&2
+            exit 1
+          fi
+          if [[ ! "${PIPELINE_IMAGE}" =~ ^ghcr\.io/sovorn-c/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "unexpected pipeline image reference" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve and verify image digests
+        id: images
+        run: |
+          set -euo pipefail
+          resolve() {
+            local digest
+            digest="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest)"
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "could not resolve digest for $1" >&2
+              exit 1
+            fi
+            echo "${1%%:*}@${digest}"
+          }
+          mcp_image="$(resolve "ghcr.io/sovorn-c/vehicle-mcp-server:${MCP_VERSION}")"
+          agent_image="$(resolve "ghcr.io/sovorn-c/vehicle-risk-agent:${AGENT_VERSION}")"
+          for image in "${PIPELINE_IMAGE}" "${mcp_image}" "${agent_image}"; do
+            gh attestation verify "oci://${image}" --owner sovorn-c
+          done
+          {
+            echo "mcp_image=${mcp_image}"
+            echo "agent_image=${agent_image}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.17.0
+          terraform_wrapper: false
+
+      - name: Azure login
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform init
+        working-directory: terraform/stack
+        env:
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=stack.tfstate"
+
+      - name: Record previous images
+        id: previous
+        working-directory: terraform/stack
+        run: |
+          set -euo pipefail
+          prev="${GITHUB_WORKSPACE}/terraform/stack/previous.tfvars.json"
+          rc=0
+          terraform output -json | "${GITHUB_WORKSPACE}/scripts/previous-images.sh" > "${prev}" || rc=$?
+          if [[ ${rc} -ne 0 && ${rc} -ne 3 ]]; then
+            exit "${rc}"
+          fi
+          if [[ -s "${prev}" ]]; then
+            echo "has_previous=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_previous=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Terraform apply and seed
+        id: apply
+        working-directory: terraform/stack
+        env:
+          MCP_IMAGE: ${{ steps.images.outputs.mcp_image }}
+          AGENT_IMAGE: ${{ steps.images.outputs.agent_image }}
+        run: |
+          set -euo pipefail
+          terraform apply -auto-approve \
+            -var="pipeline_image=${PIPELINE_IMAGE}" \
+            -var="mcp_image=${MCP_IMAGE}" \
+            -var="agent_image=${AGENT_IMAGE}"
+          rg="$(terraform output -raw resource_group_name)"
+          jobs="$(terraform output -json job_names)"
+          {
+            echo "resource_group=${rg}"
+            echo "mcp_url=$(terraform output -raw mcp_url)"
+            echo "eval_job=$(jq -r .agent_postdeploy_eval <<< "${jobs}")"
+          } >> "${GITHUB_OUTPUT}"
+          for key in pipeline_migrate pipeline_seed agent_seed; do
+            "${GITHUB_WORKSPACE}/scripts/run-aca-job.sh" "${rg}" "$(jq -r --arg k "${key}" '.[$k]' <<< "${jobs}")"
+          done
+
+      - name: Checkout vehicle-mcp-server for smoke
+        id: smoke_checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sovorn-c/vehicle-mcp-server
+          ref: v${{ inputs.mcp_version }}
+          path: mcp-smoke
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          version: "0.5.26"
+
+      - name: Smoke
+        id: smoke
+        continue-on-error: true
+        working-directory: mcp-smoke
+        env:
+          PUBLIC_MCP_URL: ${{ steps.apply.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          bash scripts/smoke-public.sh
+          bash scripts/smoke-public.sh --security
+
+      - name: Post-deploy eval
+        id: eval
+        if: steps.smoke.outcome == 'success'
+        continue-on-error: true
+        env:
+          RESOURCE_GROUP: ${{ steps.apply.outputs.resource_group }}
+          EVAL_JOB: ${{ steps.apply.outputs.eval_job }}
+        run: scripts/run-aca-job.sh "${RESOURCE_GROUP}" "${EVAL_JOB}"
+
+      - name: Roll back
+        if: steps.smoke.outcome != 'success' || steps.eval.outcome != 'success'
+        working-directory: terraform/stack
+        env:
+          HAS_PREVIOUS: ${{ steps.previous.outputs.has_previous }}
+        run: |
+          set -euo pipefail
+          if [[ "${HAS_PREVIOUS}" == "true" ]]; then
+            terraform apply -auto-approve -var-file=previous.tfvars.json
+            echo "::error::Deploy rejected; rolled back to previous images (database migrations are not reversed)."
+          else
+            echo "::error::First deploy failed; no previous images to roll back to. Run demo-down."
+          fi
+          exit 1
+
+      - name: Job summary
+        if: always()
+        env:
+          MCP_IMAGE: ${{ steps.images.outputs.mcp_image }}
+          AGENT_IMAGE: ${{ steps.images.outputs.agent_image }}
+          MCP_URL: ${{ steps.apply.outputs.mcp_url }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          EVAL_OUTCOME: ${{ steps.eval.outcome }}
+        run: |
+          {
+            echo "## demo-up"
+            echo
+            echo "- pipeline: \`${PIPELINE_IMAGE}\`"
+            echo "- mcp: \`${MCP_IMAGE}\`"
+            echo "- agent: \`${AGENT_IMAGE}\`"
+            echo "- mcp_url: ${MCP_URL}"
+            echo "- smoke: ${SMOKE_OUTCOME}"
+            echo "- eval: ${EVAL_OUTCOME}"
+          } >> "${GITHUB_STEP_SUMMARY}"
