@@ -11,7 +11,8 @@ on:
       agent_version:
         description: vehicle-risk-agent release version
         type: string
-        required: true
+        required: false
+        default: "0.2.0"
       force_gate_failure:
         description: Force the pre-deploy eval gate to fail
         type: boolean

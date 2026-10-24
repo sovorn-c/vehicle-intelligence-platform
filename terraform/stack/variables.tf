@@ -58,9 +58,9 @@ variable "openai_model_version" {
 }
 
 variable "openai_capacity" {
-  description = "Azure OpenAI deployment capacity in thousands of tokens per minute."
+  description = "Azure OpenAI deployment capacity in thousands of tokens per minute. One agent draft uses about 2.2-2.4K tokens, so 1K returns 429."
   type        = number
-  default     = 1
+  default     = 10
 
   validation {
     condition     = var.openai_capacity >= 1 && var.openai_capacity <= 10 && floor(var.openai_capacity) == var.openai_capacity

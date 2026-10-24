@@ -133,8 +133,8 @@ resource "azurerm_container_app_job" "agent_seed" {
       name    = "job-agent-seed"
       image   = var.agent_image
       command = ["python", "-m", "vehicle_risk_agent.cli.seed"]
-      cpu     = 0.5
-      memory  = "1Gi"
+      cpu     = 1.0
+      memory  = "2Gi"
 
       dynamic "env" {
         for_each = local.agent_env
@@ -183,8 +183,8 @@ resource "azurerm_container_app_job" "agent_postdeploy_eval" {
       name    = "job-agent-postdeploy-eval"
       image   = var.agent_image
       command = ["python", "-m", "vehicle_risk_agent.cli.postdeploy_eval"]
-      cpu     = 0.5
-      memory  = "1Gi"
+      cpu     = 1.0
+      memory  = "2Gi"
 
       dynamic "env" {
         for_each = local.agent_env

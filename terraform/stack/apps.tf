@@ -204,8 +204,8 @@ resource "azurerm_container_app" "agent" {
     container {
       name   = local.app_names.agent
       image  = var.agent_image
-      cpu    = 0.5
-      memory = "1Gi"
+      cpu    = 1.0
+      memory = "2Gi"
 
       dynamic "env" {
         for_each = local.agent_env
