@@ -547,3 +547,33 @@ run "each_workload_uses_its_own_image" {
     error_message = "deployed_images.agent_image must equal agent_image."
   }
 }
+
+run "container_sizes_are_valid_consumption_pairs" {
+  command = apply
+
+  # Consumption allows only memory = 2 x vCPU (0.25/0.5Gi ... 4/8Gi).
+  assert {
+    condition = alltrue([
+      for c in [
+        azurerm_container_app.pipeline.template[0].container[0],
+        azurerm_container_app.mcp.template[0].container[0],
+        azurerm_container_app.agent.template[0].container[0],
+        azurerm_container_app_job.pipeline_migrate.template[0].container[0],
+        azurerm_container_app_job.pipeline_seed.template[0].container[0],
+        azurerm_container_app_job.agent_seed.template[0].container[0],
+        azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0],
+      ] : c.memory == "${c.cpu * 2}Gi"
+    ])
+    error_message = "Every container must use a Consumption cpu/memory pair (memory = 2 x cpu)."
+  }
+  assert {
+    condition = alltrue([
+      for c in [
+        azurerm_container_app.agent.template[0].container[0],
+        azurerm_container_app_job.agent_seed.template[0].container[0],
+        azurerm_container_app_job.agent_postdeploy_eval.template[0].container[0],
+      ] : c.cpu == 1 && c.memory == "2Gi"
+    ])
+    error_message = "Agent app and jobs must get 1 vCPU / 2Gi (local peak 764 MiB left too little headroom at 1Gi)."
+  }
+}
